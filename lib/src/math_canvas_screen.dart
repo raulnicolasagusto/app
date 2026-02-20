@@ -3,12 +3,12 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
+import 'backend_validation_service.dart';
 import 'canvas_painter.dart';
 import 'equation_bank.dart';
 import 'feedback_mapper.dart';
 import 'ink_service.dart';
 import 'line_mapper.dart';
-import 'llm_service.dart';
 import 'models.dart';
 
 class MathCanvasScreen extends StatefulWidget {
@@ -22,7 +22,7 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
     with TickerProviderStateMixin {
   final EquationBank _equationBank = EquationBank();
   final InkService _inkService = InkService();
-  final LlmService _llmService = LlmService();
+  final BackendValidationService _validationService = BackendValidationService();
 
   late EquationItem _currentEquation;
   final List<StrokePath> _userStrokes = <StrokePath>[];
@@ -57,7 +57,7 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
   void dispose() {
     _typeTimer?.cancel();
     _checkController.dispose();
-    _llmService.dispose();
+    _validationService.dispose();
     super.dispose();
   }
 
@@ -135,46 +135,48 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
     try {
       final OcrBundle ocrBundle = await _inkService.recognize(_userStrokes);
       if (ocrBundle.rawJoinedText.trim().isEmpty) {
-        throw const LlmException('No pudimos leer la escritura. Intenta nuevamente.');
+        throw const BackendValidationException(
+          'No pudimos leer la escritura. Intenta nuevamente.',
+        );
       }
       _logLarge('OCR_RAW', ocrBundle.rawJoinedText);
       final List<String> ocrLines = ocrBundle.lines;
 
-      final LLMAnalysis analysis = await _llmService.analyze(
-        equation: _currentEquation.prompt,
-        expectedFinal: _currentEquation.expectedFinal,
-        contextHint: _currentEquation.contextHint,
+      final BackendValidationResult result = await _validationService.validate(
+        equation: _currentEquation,
         ocrBundle: ocrBundle,
       );
-
-      final bool hasUsableMathCandidates = _hasUsableMathCandidates(ocrBundle);
-      final UiDecision decision = decideUiDecision(
-        analysis,
-        hasUsableMathCandidates: hasUsableMathCandidates,
-      );
-      _logLarge('LLM_DECISION', jsonEncode(<String, dynamic>{
-        'ocr_legible': analysis.ocrLegible,
-        'resultado_final_correcto': analysis.resultadoFinalCorrecto,
-        'correcto_global': analysis.correctoGlobal,
-        'explicacion_breve': analysis.explicacionBreve,
-        'has_usable_math_candidates': hasUsableMathCandidates,
-      }));
       _logLarge(
-        'LLM_WRONG_LINES',
-        analysis.lineasIncorrectas.map((int n) => n.toString()).join(','),
+        'BACKEND_VALIDATION',
+        jsonEncode(<String, dynamic>{
+          'decision': result.decision,
+          'is_correct': result.isCorrect,
+          'final_result_correct': result.finalResultCorrect,
+          'process_valid': result.processValid,
+          'validation_status': result.validationStatus,
+          'equivalence_mode': result.equivalenceMode,
+          'error_type': result.errorType,
+          'warning_type': result.warningType,
+          'warning_lines': result.warningLines,
+          'wrong_lines': result.wrongLines,
+        }),
       );
 
       final int inferredLineCount = ocrLines.isEmpty ? 1 : ocrLines.length;
-      final int maxAiLine = analysis.lineasIncorrectas.isEmpty
+      final List<int> backendMarkedLines = <int>[
+        ...result.warningLines,
+        ...result.wrongLines,
+      ];
+      final int maxBackendLine = backendMarkedLines.isEmpty
           ? inferredLineCount
-          : analysis.lineasIncorrectas.reduce((int a, int b) => a > b ? a : b);
-      final int finalLineFromAi = (analysis.lineaResultadoFinal ?? inferredLineCount) <= 0
+          : backendMarkedLines.reduce((int a, int b) => a > b ? a : b);
+      final int finalLineFromBackend = result.finalResultLine <= 0
           ? inferredLineCount
-          : analysis.lineaResultadoFinal!;
+          : result.finalResultLine;
       final int targetLineCount = <int>[
         inferredLineCount,
-        maxAiLine,
-        finalLineFromAi,
+        maxBackendLine,
+        finalLineFromBackend,
         1,
       ].reduce((int a, int b) => a > b ? a : b);
       final List<LineBand> mappedBands = buildLineBands(
@@ -182,13 +184,18 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
         targetLineCount: targetLineCount,
       );
       final int effectiveLineCount = mappedBands.isEmpty ? targetLineCount : mappedBands.length;
-      final int finalLine = finalLineFromAi.clamp(1, effectiveLineCount);
+      final int finalLine = finalLineFromBackend.clamp(1, effectiveLineCount);
 
       if (!mounted) return;
       setState(() {
         _lineBands = mappedBands;
         _finalResultLine = finalLine;
       });
+
+      final UiDecision decision = (result.decision == 'correct' ||
+              result.decision == 'correct_with_warnings')
+          ? UiDecision.correct
+          : (result.decision == 'unreadable' ? UiDecision.unreadable : UiDecision.incorrect);
 
       if (decision == UiDecision.unreadable) {
         _logLarge('FINAL_UI_DECISION', 'unreadable');
@@ -201,26 +208,47 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
         _showMessage('No pude leer tu escritura. Intenta más claro.');
       } else if (decision == UiDecision.correct) {
         _logLarge('FINAL_UI_DECISION', 'correct');
+        final bool hasWarnings = result.decision == 'correct_with_warnings';
+        final List<int> markedLines = buildWrongLineNumbers(
+          wrongLines: backendMarkedLines,
+          lineBandCount: effectiveLineCount,
+          finalResultLine: _finalResultLine,
+          includeFinalLine: false,
+        );
         setState(() {
           _showCheck = true;
           _showFinalX = false;
-          _wrongLineNumbers = <int>[];
+          _wrongLineNumbers = hasWarnings ? markedLines : <int>[];
           _animatedCorrectionText = '';
         });
         _checkController.forward(from: 0);
-        _showMessage('Correcto. Resolucion valida.');
+        if (hasWarnings) {
+          final List<String> warningLines = result.suggestedCorrectionSteps.isNotEmpty
+              ? result.suggestedCorrectionSteps
+              : <String>[
+                  result.warningMessage ??
+                      'Resultado final correcto. Revisa el paso marcado en rojo.',
+                  'El procedimiento necesita una revision.',
+                ];
+          _startTypewriter(warningLines.join('\n'));
+          _showMessage(
+            'Resultado final correcto. Revisa el paso marcado en rojo.',
+          );
+        } else {
+          _showMessage('Correcto. Resolucion valida.');
+        }
       } else {
         _logLarge('FINAL_UI_DECISION', 'incorrect');
         final List<int> wrongLines = buildWrongLineNumbers(
-          wrongLines: analysis.lineasIncorrectas,
+          wrongLines: result.wrongLines,
           lineBandCount: effectiveLineCount,
           finalResultLine: _finalResultLine,
-          includeFinalLine: true,
+          includeFinalLine: false,
         );
-        final List<String> correctionLines = analysis.correccionDesdeError.isNotEmpty
-            ? analysis.correccionDesdeError
-            : (analysis.pasosSugeridos.isNotEmpty
-                  ? analysis.pasosSugeridos
+        final List<String> correctionLines = result.suggestedCorrectionSteps.isNotEmpty
+            ? result.suggestedCorrectionSteps
+            : (result.pedagogicalFeedback.trim().isNotEmpty
+                  ? <String>[result.pedagogicalFeedback]
                   : <String>[
                       'Revisa las lineas tachadas.',
                       'Resultado esperado: ${_currentEquation.expectedFinal}',
@@ -232,9 +260,13 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
           _animatedCorrectionText = '';
         });
         _startTypewriter(correctionLines.join('\n'));
-        _showMessage('Incorrecto. Revisa pasos tachados y correccion.');
+        _showMessage(
+          result.validationStatus == 'undetermined'
+              ? 'No pude confirmar un paso con precision. Revisa tu escritura.'
+              : 'Incorrecto. Revisa pasos tachados y correccion.',
+        );
       }
-    } on LlmException catch (error) {
+    } on BackendValidationException catch (error) {
       _showMessage(error.message);
     } catch (error) {
       _showMessage('Error procesando ejercicio: $error');
@@ -287,17 +319,6 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
       final int end = (i + chunk < text.length) ? i + chunk : text.length;
       debugPrint('$tag: ${text.substring(i, end)}');
     }
-  }
-
-  bool _hasUsableMathCandidates(OcrBundle bundle) {
-    for (final OcrLineResult line in bundle.lineResults) {
-      for (final OcrCandidate c in line.candidates) {
-        if (c.mathScore >= 2) {
-          return true;
-        }
-      }
-    }
-    return false;
   }
 
   @override

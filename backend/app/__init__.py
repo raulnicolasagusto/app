@@ -1,0 +1,2 @@
+"""Math Fight backend package."""
+

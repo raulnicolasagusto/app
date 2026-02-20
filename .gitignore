@@ -2,6 +2,7 @@
 *.class
 *.log
 *.pyc
+__pycache__/
 *.swp
 .DS_Store
 .atom/
@@ -33,6 +34,7 @@ migrate_working_dir/
 /build/
 /coverage/
 .env
+backend/mathfight.db
 
 # Symbolication related
 app.*.symbols

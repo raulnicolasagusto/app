@@ -252,3 +252,139 @@ class LLMAnalysis {
         RegExp(r'[\+\-\*/]').hasMatch(t);
   }
 }
+
+class BackendStepValidation {
+  const BackendStepValidation({
+    required this.fromStep,
+    required this.toStep,
+    required this.fromNormalized,
+    required this.toNormalized,
+    required this.equivalent,
+    required this.validationStatus,
+    required this.equivalenceMode,
+    required this.reason,
+    required this.previousSolutionSet,
+    required this.currentSolutionSet,
+  });
+
+  factory BackendStepValidation.fromJson(Map<String, dynamic> json) {
+    return BackendStepValidation(
+      fromStep: (json['from_step'] ?? '').toString(),
+      toStep: (json['to_step'] ?? '').toString(),
+      fromNormalized: (json['from_normalized'] ?? '').toString(),
+      toNormalized: (json['to_normalized'] ?? '').toString(),
+      equivalent: json['equivalent'] == true,
+      validationStatus: (json['validation_status'] ?? 'invalid').toString(),
+      equivalenceMode: (json['equivalence_mode'] ?? 'algebraic').toString(),
+      reason: (json['reason'] ?? '').toString(),
+      previousSolutionSet: json['previous_solution_set']?.toString(),
+      currentSolutionSet: json['current_solution_set']?.toString(),
+    );
+  }
+
+  final String fromStep;
+  final String toStep;
+  final String fromNormalized;
+  final String toNormalized;
+  final bool equivalent;
+  final String validationStatus;
+  final String equivalenceMode;
+  final String reason;
+  final String? previousSolutionSet;
+  final String? currentSolutionSet;
+}
+
+class BackendValidationResult {
+  const BackendValidationResult({
+    required this.decision,
+    required this.isCorrect,
+    required this.finalResultCorrect,
+    required this.processValid,
+    required this.warningLines,
+    required this.wrongLines,
+    required this.finalResultLine,
+    required this.firstErrorIndex,
+    required this.errorType,
+    required this.warningType,
+    required this.warningMessage,
+    required this.validationStatus,
+    required this.equivalenceMode,
+    required this.previousSolutionSet,
+    required this.currentSolutionSet,
+    required this.normalizedSteps,
+    required this.stepValidations,
+    required this.pedagogicalFeedback,
+    required this.suggestedCorrectionSteps,
+    required this.debug,
+  });
+
+  factory BackendValidationResult.fromJson(Map<String, dynamic> json) {
+    final List<dynamic> rawWarningLines =
+        json['warning_lines'] as List<dynamic>? ?? <dynamic>[];
+    final List<dynamic> rawWrongLines =
+        json['wrong_lines'] as List<dynamic>? ?? <dynamic>[];
+    final List<dynamic> rawNormalizedSteps =
+        json['normalized_steps'] as List<dynamic>? ?? <dynamic>[];
+    final List<dynamic> rawStepValidations =
+        json['step_validations'] as List<dynamic>? ?? <dynamic>[];
+    final List<dynamic> rawSuggestionSteps =
+        json['suggested_correction_steps'] as List<dynamic>? ?? <dynamic>[];
+
+    return BackendValidationResult(
+      decision: (json['decision'] ?? 'incorrect').toString(),
+      isCorrect: json['is_correct'] == true,
+      finalResultCorrect: json['final_result_correct'] == true,
+      processValid: json['process_valid'] == true,
+      warningLines: rawWarningLines
+          .map((dynamic line) => (line as num?)?.toInt() ?? 0)
+          .where((int line) => line > 0)
+          .toList(growable: false),
+      wrongLines: rawWrongLines
+          .map((dynamic line) => (line as num?)?.toInt() ?? 0)
+          .where((int line) => line > 0)
+          .toList(growable: false),
+      finalResultLine: (json['final_result_line'] as num?)?.toInt() ?? 1,
+      firstErrorIndex: (json['first_error_index'] as num?)?.toInt(),
+      errorType: json['error_type']?.toString(),
+      warningType: json['warning_type']?.toString(),
+      warningMessage: json['warning_message']?.toString(),
+      validationStatus: (json['validation_status'] ?? 'invalid').toString(),
+      equivalenceMode: (json['equivalence_mode'] ?? 'algebraic').toString(),
+      previousSolutionSet: json['previous_solution_set']?.toString(),
+      currentSolutionSet: json['current_solution_set']?.toString(),
+      normalizedSteps:
+          rawNormalizedSteps.map((dynamic line) => line.toString()).toList(growable: false),
+      stepValidations: rawStepValidations
+          .whereType<Map<String, dynamic>>()
+          .map(BackendStepValidation.fromJson)
+          .toList(growable: false),
+      pedagogicalFeedback: (json['pedagogical_feedback'] ?? '').toString(),
+      suggestedCorrectionSteps:
+          rawSuggestionSteps.map((dynamic line) => line.toString()).toList(growable: false),
+      debug: Map<String, dynamic>.from(
+        json['debug'] as Map<String, dynamic>? ?? <String, dynamic>{},
+      ),
+    );
+  }
+
+  final String decision;
+  final bool isCorrect;
+  final bool finalResultCorrect;
+  final bool processValid;
+  final List<int> warningLines;
+  final List<int> wrongLines;
+  final int finalResultLine;
+  final int? firstErrorIndex;
+  final String? errorType;
+  final String? warningType;
+  final String? warningMessage;
+  final String validationStatus;
+  final String equivalenceMode;
+  final String? previousSolutionSet;
+  final String? currentSolutionSet;
+  final List<String> normalizedSteps;
+  final List<BackendStepValidation> stepValidations;
+  final String pedagogicalFeedback;
+  final List<String> suggestedCorrectionSteps;
+  final Map<String, dynamic> debug;
+}
