@@ -63,10 +63,38 @@ Crear archivo `.env` en la raíz con:
 
 ```env
 GROQ_API_KEY=tu_api_key
-BACKEND_BASE_URL=http://127.0.0.1:8000
+BACKEND_BASE_URL=http://192.168.100.5:8000
 ```
 
 > La app carga `.env` en `main.dart`. `BACKEND_BASE_URL` apunta al backend FastAPI.
+>
+> Flujo recomendado para este proyecto: pruebas en telefono fisico Android dentro de la misma red local que la PC.
+> En ese escenario, `127.0.0.1` no funciona porque apunta al telefono, no a tu computadora.
+> Debes usar la IP local IPv4 de tu PC (por ejemplo `192.168.100.5`).
+>
+> Si reinicias la PC y cambia la IP, obten la nueva IP con PowerShell:
+>
+> ```powershell
+> (Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
+>   $_.IPAddress -like '192.168.*' -or $_.IPAddress -like '10.*' -or $_.IPAddress -like '172.*'
+> } | Where-Object {
+>   $_.InterfaceAlias -notmatch 'vEthernet|Hyper-V|VMware|Virtual|Loopback|WSL|Bluetooth|Tailscale|ZeroTier'
+> } | Select-Object -First 1 -ExpandProperty IPAddress)
+> ```
+>
+> Luego actualiza `.env`:
+>
+> ```env
+> BACKEND_BASE_URL=http://TU_IP:8000
+> ```
+>
+> Ejemplo:
+>
+> ```env
+> BACKEND_BASE_URL=http://192.168.100.5:8000
+> ```
+>
+> Finalmente, haz restart completo de Flutter app (no hot reload) para que tome el nuevo `.env`.
 
 ### 3) Instalar dependencias
 
