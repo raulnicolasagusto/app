@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
 import 'canvas_painter.dart';
 import 'equation_bank.dart';
+import 'feedback_mapper.dart';
 import 'ink_service.dart';
+import 'line_mapper.dart';
 import 'llm_service.dart';
 import 'models.dart';
 
@@ -27,8 +30,10 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
 
   bool _isLoading = false;
   bool _showCheck = false;
+  bool _showFinalX = false;
   List<int> _wrongLineNumbers = <int>[];
-  int _recognizedLineCount = 0;
+  int _finalResultLine = 1;
+  List<LineBand> _lineBands = <LineBand>[];
   String _animatedCorrectionText = '';
   Timer? _typeTimer;
 
@@ -57,9 +62,7 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
   }
 
   void _onPanStart(DragStartDetails details) {
-    if (_isLoading) {
-      return;
-    }
+    if (_isLoading) return;
     final int timestamp = DateTime.now().millisecondsSinceEpoch;
     _activeStroke = StrokePath(
       points: <Offset>[details.localPosition],
@@ -69,18 +72,14 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
   }
 
   void _onPanUpdate(DragUpdateDetails details) {
-    if (_activeStroke == null || _isLoading) {
-      return;
-    }
+    if (_activeStroke == null || _isLoading) return;
     _activeStroke!.points.add(details.localPosition);
     _activeStroke!.timestamps.add(DateTime.now().millisecondsSinceEpoch);
     setState(() {});
   }
 
   void _onPanEnd(DragEndDetails details) {
-    if (_activeStroke == null || _isLoading) {
-      return;
-    }
+    if (_activeStroke == null || _isLoading) return;
     _userStrokes.add(_activeStroke!);
     _activeStroke = null;
     setState(() {});
@@ -90,8 +89,10 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
     _typeTimer?.cancel();
     _checkController.reset();
     _showCheck = false;
+    _showFinalX = false;
     _wrongLineNumbers = <int>[];
-    _recognizedLineCount = 0;
+    _finalResultLine = 1;
+    _lineBands = <LineBand>[];
     _animatedCorrectionText = '';
     _activeStroke = null;
     _userStrokes.clear();
@@ -105,10 +106,15 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
     });
   }
 
+  void _clearCanvasOnly() {
+    if (_isLoading) return;
+    setState(() {
+      _resetCanvasForNextEquation();
+    });
+  }
+
   Future<void> _analyze() async {
-    if (_isLoading) {
-      return;
-    }
+    if (_isLoading) return;
     if (_userStrokes.isEmpty) {
       _showMessage('Escribí tu resolución antes de presionar Listo.');
       return;
@@ -117,70 +123,116 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
     setState(() {
       _isLoading = true;
       _showCheck = false;
+      _showFinalX = false;
       _wrongLineNumbers = <int>[];
-      _recognizedLineCount = 0;
+      _finalResultLine = 1;
+      _lineBands = <LineBand>[];
       _animatedCorrectionText = '';
       _checkController.reset();
       _typeTimer?.cancel();
     });
 
     try {
-      final String transcription = await _inkService.recognize(_userStrokes);
-      if (transcription.trim().isEmpty) {
-        throw const LlmException(
-          'No pudimos leer la escritura. Intenta nuevamente.',
-        );
+      final OcrBundle ocrBundle = await _inkService.recognize(_userStrokes);
+      if (ocrBundle.rawJoinedText.trim().isEmpty) {
+        throw const LlmException('No pudimos leer la escritura. Intenta nuevamente.');
       }
-
-      final List<String> lines = transcription
-          .split('\n')
-          .map((String line) => line.trim())
-          .where((String line) => line.isNotEmpty)
-          .toList(growable: false);
+      _logLarge('OCR_RAW', ocrBundle.rawJoinedText);
+      final List<String> ocrLines = ocrBundle.lines;
 
       final LLMAnalysis analysis = await _llmService.analyze(
         equation: _currentEquation.prompt,
         expectedFinal: _currentEquation.expectedFinal,
         contextHint: _currentEquation.contextHint,
-        transcription: transcription,
+        ocrBundle: ocrBundle,
       );
-      final bool fallbackCorrect = _matchesExpectedResult(
-        transcription: transcription,
-        expectedFinal: _currentEquation.expectedFinal,
+
+      final bool hasUsableMathCandidates = _hasUsableMathCandidates(ocrBundle);
+      final UiDecision decision = decideUiDecision(
+        analysis,
+        hasUsableMathCandidates: hasUsableMathCandidates,
       );
-      final bool finalCorrect = analysis.correcto || fallbackCorrect;
+      _logLarge('LLM_DECISION', jsonEncode(<String, dynamic>{
+        'ocr_legible': analysis.ocrLegible,
+        'resultado_final_correcto': analysis.resultadoFinalCorrecto,
+        'correcto_global': analysis.correctoGlobal,
+        'explicacion_breve': analysis.explicacionBreve,
+        'has_usable_math_candidates': hasUsableMathCandidates,
+      }));
+      _logLarge(
+        'LLM_WRONG_LINES',
+        analysis.lineasIncorrectas.map((int n) => n.toString()).join(','),
+      );
 
-      if (!mounted) {
-        return;
-      }
+      final int inferredLineCount = ocrLines.isEmpty ? 1 : ocrLines.length;
+      final int maxAiLine = analysis.lineasIncorrectas.isEmpty
+          ? inferredLineCount
+          : analysis.lineasIncorrectas.reduce((int a, int b) => a > b ? a : b);
+      final int finalLineFromAi = (analysis.lineaResultadoFinal ?? inferredLineCount) <= 0
+          ? inferredLineCount
+          : analysis.lineaResultadoFinal!;
+      final int targetLineCount = <int>[
+        inferredLineCount,
+        maxAiLine,
+        finalLineFromAi,
+        1,
+      ].reduce((int a, int b) => a > b ? a : b);
+      final List<LineBand> mappedBands = buildLineBands(
+        strokes: _userStrokes,
+        targetLineCount: targetLineCount,
+      );
+      final int effectiveLineCount = mappedBands.isEmpty ? targetLineCount : mappedBands.length;
+      final int finalLine = finalLineFromAi.clamp(1, effectiveLineCount);
 
+      if (!mounted) return;
       setState(() {
-        _recognizedLineCount = lines.isEmpty
-            ? (analysis.pasos.isEmpty ? 1 : analysis.pasos.length)
-            : lines.length;
+        _lineBands = mappedBands;
+        _finalResultLine = finalLine;
       });
 
-      if (finalCorrect) {
+      if (decision == UiDecision.unreadable) {
+        _logLarge('FINAL_UI_DECISION', 'unreadable');
+        setState(() {
+          _showCheck = false;
+          _showFinalX = false;
+          _wrongLineNumbers = <int>[];
+          _animatedCorrectionText = '';
+        });
+        _showMessage('No pude leer tu escritura. Intenta más claro.');
+      } else if (decision == UiDecision.correct) {
+        _logLarge('FINAL_UI_DECISION', 'correct');
         setState(() {
           _showCheck = true;
+          _showFinalX = false;
           _wrongLineNumbers = <int>[];
           _animatedCorrectionText = '';
         });
         _checkController.forward(from: 0);
-        _showMessage('Correcto. Tu resultado coincide con la ecuacion.');
+        _showMessage('Correcto. Resolucion valida.');
       } else {
-        final List<int> wrongLines = analysis.pasos
-            .where((LLMLineResult step) => !step.ok)
-            .map((LLMLineResult step) => step.linea <= 0 ? 1 : step.linea)
-            .toList(growable: false);
-        final String correctionBlock = analysis.correccion.join('\n');
+        _logLarge('FINAL_UI_DECISION', 'incorrect');
+        final List<int> wrongLines = buildWrongLineNumbers(
+          wrongLines: analysis.lineasIncorrectas,
+          lineBandCount: effectiveLineCount,
+          finalResultLine: _finalResultLine,
+          includeFinalLine: true,
+        );
+        final List<String> correctionLines = analysis.correccionDesdeError.isNotEmpty
+            ? analysis.correccionDesdeError
+            : (analysis.pasosSugeridos.isNotEmpty
+                  ? analysis.pasosSugeridos
+                  : <String>[
+                      'Revisa las lineas tachadas.',
+                      'Resultado esperado: ${_currentEquation.expectedFinal}',
+                    ]);
         setState(() {
           _showCheck = false;
+          _showFinalX = true;
           _wrongLineNumbers = wrongLines;
           _animatedCorrectionText = '';
         });
-        _startTypewriter(correctionBlock);
-        _showMessage('Incorrecto. Revisa las correcciones en verde.');
+        _startTypewriter(correctionLines.join('\n'));
+        _showMessage('Incorrecto. Revisa pasos tachados y correccion.');
       }
     } on LlmException catch (error) {
       _showMessage(error.message);
@@ -197,9 +249,7 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
 
   void _startTypewriter(String text) {
     _typeTimer?.cancel();
-    if (text.trim().isEmpty) {
-      return;
-    }
+    if (text.trim().isEmpty) return;
     int index = 0;
     _typeTimer = Timer.periodic(const Duration(milliseconds: 30), (Timer timer) {
       index++;
@@ -217,51 +267,37 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
     });
   }
 
-  bool _matchesExpectedResult({
-    required String transcription,
-    required String expectedFinal,
-  }) {
-    final RegExp expectedPattern = RegExp(
-      r'^\s*([a-zA-Z])\s*=\s*(-?\d+(?:\.\d+)?)\s*$',
-    );
-    final Match? expectedMatch = expectedPattern.firstMatch(expectedFinal);
-    if (expectedMatch == null) {
-      return false;
-    }
-    final String expectedVar = expectedMatch.group(1)!.toLowerCase();
-    final String expectedValue = expectedMatch.group(2)!;
-
-    final RegExp foundAssignments = RegExp(
-      r'([a-zA-Z])\s*=\s*(-?\d+(?:\.\d+)?)',
-      multiLine: true,
-    );
-    for (final Match match in foundAssignments.allMatches(transcription)) {
-      final String varName = (match.group(1) ?? '').toLowerCase();
-      final String value = match.group(2) ?? '';
-      if (varName == expectedVar && value == expectedValue) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   List<StrokePath> get _strokesForPaint {
-    if (_activeStroke == null) {
-      return List<StrokePath>.unmodifiable(_userStrokes);
-    }
-    return List<StrokePath>.unmodifiable(<StrokePath>[
-      ..._userStrokes,
-      _activeStroke!,
-    ]);
+    if (_activeStroke == null) return List<StrokePath>.unmodifiable(_userStrokes);
+    return List<StrokePath>.unmodifiable(<StrokePath>[..._userStrokes, _activeStroke!]);
   }
 
   void _showMessage(String message) {
-    if (!mounted) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _logLarge(String tag, String text) {
+    const int chunk = 700;
+    if (text.isEmpty) {
+      debugPrint('$tag: <empty>');
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    for (int i = 0; i < text.length; i += chunk) {
+      final int end = (i + chunk < text.length) ? i + chunk : text.length;
+      debugPrint('$tag: ${text.substring(i, end)}');
+    }
+  }
+
+  bool _hasUsableMathCandidates(OcrBundle bundle) {
+    for (final OcrLineResult line in bundle.lineResults) {
+      for (final OcrCandidate c in line.candidates) {
+        if (c.mathScore >= 2) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   @override
@@ -276,7 +312,6 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
         child: LayoutBuilder(
           builder: (BuildContext context, BoxConstraints constraints) {
             final double headerHeight = constraints.maxHeight * 0.2;
-            final double canvasHeight = constraints.maxHeight * 0.65;
             final double footerHeight = constraints.maxHeight * 0.15;
 
             return Column(
@@ -320,8 +355,7 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
                     ),
                   ),
                 ),
-                SizedBox(
-                  height: canvasHeight,
+                Expanded(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     child: ClipRRect(
@@ -334,8 +368,10 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
                           painter: MathCanvasPainter(
                             userStrokes: _strokesForPaint,
                             wrongLineNumbers: _wrongLineNumbers,
-                            totalLines: _recognizedLineCount,
+                            lineBands: _lineBands,
+                            finalResultLine: _finalResultLine,
                             showCheck: _showCheck,
+                            showFinalX: _showFinalX,
                             checkProgress: _checkController.value,
                             correctionText: _animatedCorrectionText,
                           ),
@@ -347,18 +383,27 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
                 ),
                 SizedBox(
                   height: footerHeight,
-                  child: Center(
-                    child: FilledButton.icon(
-                      onPressed: _isLoading ? null : _analyze,
-                      icon: _isLoading
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.check),
-                      label: Text(_isLoading ? 'Analizando...' : 'Listo'),
-                    ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: <Widget>[
+                      IconButton(
+                        onPressed: _isLoading ? null : _clearCanvasOnly,
+                        tooltip: 'Borrar canvas',
+                        icon: const Icon(Icons.auto_fix_normal),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton.icon(
+                        onPressed: _isLoading ? null : _analyze,
+                        icon: _isLoading
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.check),
+                        label: Text(_isLoading ? 'Analizando...' : 'Listo'),
+                      ),
+                    ],
                   ),
                 ),
               ],

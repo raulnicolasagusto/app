@@ -9,16 +9,20 @@ class MathCanvasPainter extends CustomPainter {
   MathCanvasPainter({
     required this.userStrokes,
     required this.wrongLineNumbers,
-    required this.totalLines,
+    required this.lineBands,
+    required this.finalResultLine,
     required this.showCheck,
+    required this.showFinalX,
     required this.checkProgress,
     required this.correctionText,
   });
 
   final List<StrokePath> userStrokes;
   final List<int> wrongLineNumbers;
-  final int totalLines;
+  final List<LineBand> lineBands;
+  final int finalResultLine;
   final bool showCheck;
+  final bool showFinalX;
   final double checkProgress;
   final String correctionText;
 
@@ -34,6 +38,7 @@ class MathCanvasPainter extends CustomPainter {
 
     _paintStrikeLines(canvas, bounds);
     _paintCheckMark(canvas, bounds);
+    _paintFinalX(canvas, bounds);
     _paintCorrectionText(canvas, size, bounds);
   }
 
@@ -75,7 +80,7 @@ class MathCanvasPainter extends CustomPainter {
   }
 
   void _paintStrikeLines(Canvas canvas, Rect bounds) {
-    if (wrongLineNumbers.isEmpty || totalLines <= 0) {
+    if (wrongLineNumbers.isEmpty) {
       return;
     }
     final Paint strikePaint = Paint()
@@ -83,10 +88,8 @@ class MathCanvasPainter extends CustomPainter {
       ..strokeWidth = 3
       ..strokeCap = StrokeCap.round;
 
-    final double lineHeight = bounds.height <= 0 ? 28 : bounds.height / totalLines;
     for (final int rawLineNumber in wrongLineNumbers) {
-      final int clampedLine = rawLineNumber.clamp(1, totalLines);
-      final double y = bounds.top + ((clampedLine - 0.5) * lineHeight);
+      final double y = _lineCenterY(bounds, rawLineNumber);
       final double startX = bounds.left - 10;
       final double endX = bounds.right + 18;
       canvas.drawLine(Offset(startX, y), Offset(endX, y), strikePaint);
@@ -97,9 +100,10 @@ class MathCanvasPainter extends CustomPainter {
     if (!showCheck || checkProgress <= 0) {
       return;
     }
-    final Offset start = Offset(bounds.right + 16, bounds.bottom - 14);
-    final Offset mid = Offset(bounds.right + 24, bounds.bottom - 2);
-    final Offset end = Offset(bounds.right + 42, bounds.bottom - 26);
+    final double y = _lineCenterY(bounds, finalResultLine);
+    final Offset start = Offset(bounds.right + 16, y + 8);
+    final Offset mid = Offset(bounds.right + 24, y + 20);
+    final Offset end = Offset(bounds.right + 42, y - 4);
 
     final Path checkPath = Path()
       ..moveTo(start.dx, start.dy)
@@ -121,6 +125,24 @@ class MathCanvasPainter extends CustomPainter {
     canvas.drawPath(animatedPath, paint);
   }
 
+  void _paintFinalX(Canvas canvas, Rect bounds) {
+    if (!showFinalX) {
+      return;
+    }
+    final double y = _lineCenterY(bounds, finalResultLine);
+    final Paint paint = Paint()
+      ..color = const Color(0xFFD32F2F)
+      ..strokeWidth = 5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final Offset a = Offset(bounds.right + 16, y - 10);
+    final Offset b = Offset(bounds.right + 40, y + 14);
+    final Offset c = Offset(bounds.right + 40, y - 10);
+    final Offset d = Offset(bounds.right + 16, y + 14);
+    canvas.drawLine(a, b, paint);
+    canvas.drawLine(c, d, paint);
+  }
+
   void _paintCorrectionText(Canvas canvas, Size size, Rect bounds) {
     final String text = correctionText.trimRight();
     if (text.isEmpty) {
@@ -140,9 +162,14 @@ class MathCanvasPainter extends CustomPainter {
       textDirection: ui.TextDirection.ltr,
       maxLines: null,
     )..layout(maxWidth: size.width - 24);
+    final double anchorBase = lineBands.isEmpty
+        ? bounds.bottom
+        : lineBands
+            .map((LineBand band) => band.bottom)
+            .reduce((double a, double b) => a > b ? a : b);
     final Offset anchor = Offset(
       12,
-      (bounds.bottom + 22).clamp(0, size.height - textPainter.height),
+      (anchorBase + 22).clamp(0, size.height - textPainter.height),
     );
     textPainter.paint(canvas, anchor);
   }
@@ -166,12 +193,25 @@ class MathCanvasPainter extends CustomPainter {
     return Rect.fromLTRB(left, top, right, bottom);
   }
 
+  double _lineCenterY(Rect bounds, int lineNumber) {
+    if (lineBands.isNotEmpty) {
+      final int clampedLine = lineNumber.clamp(1, lineBands.length);
+      return lineBands[clampedLine - 1].center;
+    }
+    const int fallbackCount = 3;
+    final int clampedLine = lineNumber.clamp(1, fallbackCount);
+    final double lineHeight = bounds.height <= 0 ? 28 : bounds.height / fallbackCount;
+    return bounds.top + ((clampedLine - 0.5) * lineHeight);
+  }
+
   @override
   bool shouldRepaint(covariant MathCanvasPainter oldDelegate) {
     return oldDelegate.userStrokes != userStrokes ||
         oldDelegate.wrongLineNumbers != wrongLineNumbers ||
-        oldDelegate.totalLines != totalLines ||
+        oldDelegate.lineBands != lineBands ||
+        oldDelegate.finalResultLine != finalResultLine ||
         oldDelegate.showCheck != showCheck ||
+        oldDelegate.showFinalX != showFinalX ||
         oldDelegate.checkProgress != checkProgress ||
         oldDelegate.correctionText != correctionText;
   }
