@@ -37,8 +37,8 @@ class MathCanvasPainter extends CustomPainter {
     }
 
     _paintStrikeLines(canvas, bounds);
-    _paintCheckMark(canvas, bounds);
-    _paintFinalX(canvas, bounds);
+    _paintCheckMark(canvas, size, bounds);
+    _paintFinalX(canvas, size, bounds);
     _paintCorrectionText(canvas, size, bounds);
   }
 
@@ -96,14 +96,23 @@ class MathCanvasPainter extends CustomPainter {
     }
   }
 
-  void _paintCheckMark(Canvas canvas, Rect bounds) {
+  void _paintCheckMark(Canvas canvas, Size size, Rect bounds) {
     if (!showCheck || checkProgress <= 0) {
       return;
     }
     final double y = _lineCenterY(bounds, finalResultLine);
-    final Offset start = Offset(bounds.right + 16, y + 8);
-    final Offset mid = Offset(bounds.right + 24, y + 20);
-    final Offset end = Offset(bounds.right + 42, y - 4);
+    final double lineRight = _lineRightX(bounds, finalResultLine);
+    const double iconWidth = 30;
+    final double anchorX = _iconAnchorX(
+      lineRightX: lineRight,
+      iconWidth: iconWidth,
+      canvasWidth: size.width,
+      gap: 6,
+      screenPadding: 8,
+    );
+    final Offset start = Offset(anchorX, y + 8);
+    final Offset mid = Offset(anchorX + 10, y + 20);
+    final Offset end = Offset(anchorX + 28, y - 4);
 
     final Path checkPath = Path()
       ..moveTo(start.dx, start.dy)
@@ -125,20 +134,29 @@ class MathCanvasPainter extends CustomPainter {
     canvas.drawPath(animatedPath, paint);
   }
 
-  void _paintFinalX(Canvas canvas, Rect bounds) {
+  void _paintFinalX(Canvas canvas, Size size, Rect bounds) {
     if (!showFinalX) {
       return;
     }
     final double y = _lineCenterY(bounds, finalResultLine);
+    final double lineRight = _lineRightX(bounds, finalResultLine);
+    const double iconWidth = 24;
+    final double anchorX = _iconAnchorX(
+      lineRightX: lineRight,
+      iconWidth: iconWidth,
+      canvasWidth: size.width,
+      gap: 6,
+      screenPadding: 8,
+    );
     final Paint paint = Paint()
       ..color = const Color(0xFFD32F2F)
       ..strokeWidth = 5
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
-    final Offset a = Offset(bounds.right + 16, y - 10);
-    final Offset b = Offset(bounds.right + 40, y + 14);
-    final Offset c = Offset(bounds.right + 40, y - 10);
-    final Offset d = Offset(bounds.right + 16, y + 14);
+    final Offset a = Offset(anchorX, y - 10);
+    final Offset b = Offset(anchorX + 24, y + 14);
+    final Offset c = Offset(anchorX + 24, y - 10);
+    final Offset d = Offset(anchorX, y + 14);
     canvas.drawLine(a, b, paint);
     canvas.drawLine(c, d, paint);
   }
@@ -202,6 +220,49 @@ class MathCanvasPainter extends CustomPainter {
     final int clampedLine = lineNumber.clamp(1, fallbackCount);
     final double lineHeight = bounds.height <= 0 ? 28 : bounds.height / fallbackCount;
     return bounds.top + ((clampedLine - 0.5) * lineHeight);
+  }
+
+  double _lineRightX(Rect bounds, int lineNumber) {
+    double best = bounds.right;
+    if (lineBands.isEmpty) {
+      return best;
+    }
+    final int clampedLine = lineNumber.clamp(1, lineBands.length);
+    final LineBand band = lineBands[clampedLine - 1];
+    final double top = band.top - 10;
+    final double bottom = band.bottom + 10;
+    bool found = false;
+    for (final StrokePath stroke in userStrokes) {
+      for (final Offset point in stroke.points) {
+        if (point.dy < top || point.dy > bottom) {
+          continue;
+        }
+        if (!found || point.dx > best) {
+          best = point.dx;
+          found = true;
+        }
+      }
+    }
+    return best;
+  }
+
+  double _iconAnchorX({
+    required double lineRightX,
+    required double iconWidth,
+    required double canvasWidth,
+    required double gap,
+    required double screenPadding,
+  }) {
+    final double rightX = lineRightX.clamp(0, canvasWidth);
+    final double preferred = rightX + gap;
+    if (preferred + iconWidth <= canvasWidth - screenPadding) {
+      return preferred;
+    }
+    final double leftSide = rightX - iconWidth - gap;
+    return leftSide.clamp(
+      screenPadding,
+      (canvasWidth - screenPadding - iconWidth).clamp(screenPadding, canvasWidth),
+    );
   }
 
   @override
