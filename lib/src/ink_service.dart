@@ -8,59 +8,40 @@ class InkService {
   InkService() : _modelManager = DigitalInkRecognizerModelManager();
 
   final DigitalInkRecognizerModelManager _modelManager;
-  static const String _ocrTag = 'en-US';
+  static const String _primaryOcrTag = 'zxx-Zsym-x-math';
+  static const String _fallbackOcrTag = 'en-US';
   static const int _topCandidates = 5;
+  static const double _writingPadding = 12;
+  static const int _minUsableMathScore = 3;
 
   Future<OcrBundle> recognize(List<StrokePath> userStrokes) async {
     if (userStrokes.isEmpty) {
       return const OcrBundle(rawJoinedText: '', lines: <String>[], lineResults: <OcrLineResult>[]);
     }
 
-    await _ensureModelDownloaded();
-    final List<LineBand> lineBands = buildLineBands(strokes: userStrokes, targetLineCount: 1);
-    final List<List<StrokePath>> grouped = groupStrokesByLineBands(userStrokes, lineBands);
-    final DigitalInkRecognizer recognizer = DigitalInkRecognizer(languageCode: _ocrTag);
+    final List<LineBand> lineBands = buildLineBands(
+      strokes: userStrokes,
+      targetLineCount: 1,
+    );
+    final List<List<StrokePath>> grouped = groupStrokesByLineBands(
+      userStrokes,
+      lineBands,
+    );
 
-    final List<OcrLineResult> lineResults = <OcrLineResult>[];
-    try {
-      for (int lineIndex = 0; lineIndex < grouped.length; lineIndex++) {
-        final List<StrokePath> lineStrokes = grouped[lineIndex];
-        if (lineStrokes.isEmpty) {
-          continue;
-        }
-        final Ink lineInk = _buildInk(lineStrokes);
-        if (lineInk.strokes.isEmpty) {
-          continue;
-        }
-        final _Bounds bounds = _computeBounds(lineStrokes);
-        final DigitalInkRecognitionContext context = DigitalInkRecognitionContext(
-          writingArea: WritingArea(width: bounds.width, height: bounds.height),
-        );
-        final List<RecognitionCandidate> raw =
-            await recognizer.recognize(lineInk, context: context);
-        if (raw.isEmpty) {
-          continue;
-        }
-        final List<OcrCandidate> candidates = raw
-            .take(_topCandidates)
-            .map((RecognitionCandidate c) => OcrCandidate(
-                  text: c.text.trim(),
-                  score: c.score,
-                  mathScore: scoreMathText(c.text),
-                ))
-            .toList(growable: false);
-        _logLineCandidates(lineIndex + 1, candidates);
-        final OcrCandidate best = pickBestMathCandidate(candidates);
-        lineResults.add(
-          OcrLineResult(
-            lineIndex: lineIndex + 1,
-            bestText: best.text,
-            candidates: candidates,
-          ),
-        );
+    List<OcrLineResult> lineResults = <OcrLineResult>[];
+    for (final String tag in <String>[_primaryOcrTag, _fallbackOcrTag]) {
+      final bool ok = await _tryEnsureModelDownloaded(tag);
+      if (!ok) {
+        continue;
       }
-    } finally {
-      recognizer.close();
+      debugPrint('OCR_MODEL_USED: $tag');
+      lineResults = await _recognizeGrouped(
+        grouped,
+        languageCode: tag,
+      );
+      if (lineResults.isNotEmpty && lineResults.any((OcrLineResult r) => r.bestText.trim().isNotEmpty)) {
+        break;
+      }
     }
 
     lineResults.sort((OcrLineResult a, OcrLineResult b) => a.lineIndex.compareTo(b.lineIndex));
@@ -75,15 +56,106 @@ class InkService {
     );
   }
 
-  Future<void> _ensureModelDownloaded() async {
-    final bool downloaded = await _modelManager.isModelDownloaded(_ocrTag);
-    if (!downloaded) {
-      await _modelManager.downloadModel(_ocrTag, isWifiRequired: false);
+  Future<bool> _tryEnsureModelDownloaded(String languageCode) async {
+    try {
+      final bool downloaded = await _modelManager.isModelDownloaded(languageCode);
+      debugPrint('OCR_MODEL_TRY[$languageCode]: downloaded=$downloaded');
+      if (!downloaded) {
+        await _modelManager.downloadModel(languageCode, isWifiRequired: false);
+      }
+      return true;
+    } catch (error) {
+      debugPrint('OCR_MODEL_DOWNLOAD_FAILED[$languageCode]: $error');
+      return false;
     }
   }
 
-  Ink _buildInk(List<StrokePath> strokes) {
+  Future<List<OcrLineResult>> _recognizeGrouped(
+    List<List<StrokePath>> grouped, {
+    required String languageCode,
+  }) async {
+    final DigitalInkRecognizer recognizer = DigitalInkRecognizer(
+      languageCode: languageCode,
+    );
+    final List<OcrLineResult> keptLineResults = <OcrLineResult>[];
+    try {
+      for (int lineIndex = 0; lineIndex < grouped.length; lineIndex++) {
+        final List<StrokePath> lineStrokes = grouped[lineIndex];
+        if (lineStrokes.isEmpty) {
+          continue;
+        }
+        final _Bounds bounds = _computeBounds(lineStrokes);
+        final Ink lineInk = _buildInk(
+          lineStrokes,
+          bounds,
+          padding: _writingPadding,
+        );
+        if (lineInk.strokes.isEmpty) {
+          continue;
+        }
+        final double writingWidth =
+            (bounds.width + (_writingPadding * 2)).clamp(100, 2400).toDouble();
+        final double writingHeight =
+            (bounds.height + (_writingPadding * 2)).clamp(40, 1400).toDouble();
+        debugPrint(
+          'OCR_WRITING_AREA[L${lineIndex + 1}]: '
+          'w=${writingWidth.toStringAsFixed(1)} h=${writingHeight.toStringAsFixed(1)} '
+          'minX=${bounds.minX.toStringAsFixed(1)} minY=${bounds.minY.toStringAsFixed(1)} '
+          'maxX=${bounds.maxX.toStringAsFixed(1)} maxY=${bounds.maxY.toStringAsFixed(1)}',
+        );
+        final DigitalInkRecognitionContext context = DigitalInkRecognitionContext(
+          writingArea: WritingArea(width: writingWidth, height: writingHeight),
+        );
+        final List<RecognitionCandidate> raw =
+            await recognizer.recognize(lineInk, context: context);
+        if (raw.isEmpty) {
+          continue;
+        }
+        final List<OcrCandidate> candidates = raw
+            .take(_topCandidates)
+            .map((RecognitionCandidate c) => OcrCandidate(
+                  text: c.text.trim(),
+                  score: c.score,
+                  mathScore: scoreMathText(c.text),
+                ))
+            .toList(growable: false);
+
+        final List<OcrCandidate> usableCandidates = candidates
+            .where((OcrCandidate c) =>
+                looksLikeMathText(c.text) && c.mathScore >= _minUsableMathScore)
+            .toList(growable: false);
+        _logLineCandidates(
+          lineIndex + 1,
+          candidates,
+          usableCount: usableCandidates.length,
+        );
+        if (usableCandidates.isEmpty) {
+          continue;
+        }
+
+        final OcrCandidate best = pickBestMathCandidate(usableCandidates);
+        keptLineResults.add(
+          OcrLineResult(
+            lineIndex: keptLineResults.length + 1,
+            bestText: best.text,
+            candidates: usableCandidates,
+          ),
+        );
+      }
+    } finally {
+      recognizer.close();
+    }
+    return keptLineResults;
+  }
+
+  Ink _buildInk(
+    List<StrokePath> strokes,
+    _Bounds bounds, {
+    required double padding,
+  }) {
     final Ink ink = Ink();
+    final double maxX = bounds.width + (padding * 2);
+    final double maxY = bounds.height + (padding * 2);
     for (final StrokePath strokePath in strokes) {
       if (strokePath.points.isEmpty || strokePath.timestamps.isEmpty) {
         continue;
@@ -91,10 +163,12 @@ class InkService {
       final List<StrokePoint> points = <StrokePoint>[];
       for (int i = 0; i < strokePath.points.length; i++) {
         final int idx = i < strokePath.timestamps.length ? i : strokePath.timestamps.length - 1;
+        final double x = (strokePath.points[i].dx - bounds.minX + padding).clamp(0, maxX).toDouble();
+        final double y = (strokePath.points[i].dy - bounds.minY + padding).clamp(0, maxY).toDouble();
         points.add(
           StrokePoint(
-            x: strokePath.points[i].dx,
-            y: strokePath.points[i].dy,
+            x: x,
+            y: y,
             t: idx >= 0 ? strokePath.timestamps[idx] : 0,
           ),
         );
@@ -121,28 +195,58 @@ class InkService {
       }
     }
     return _Bounds(
+      minX: minX,
+      minY: minY,
+      maxX: maxX,
+      maxY: maxY,
       width: (maxX - minX).abs().clamp(100, 2000).toDouble(),
       height: (maxY - minY).abs().clamp(40, 1000).toDouble(),
     );
   }
 
-  void _logLineCandidates(int lineIndex, List<OcrCandidate> candidates) {
+  void _logLineCandidates(
+    int lineIndex,
+    List<OcrCandidate> candidates, {
+    required int usableCount,
+  }) {
     final String joined = candidates
         .map((OcrCandidate c) =>
             '{"text":"${c.text.replaceAll('"', "'")}","score":${c.score.toStringAsFixed(4)},"mathScore":${c.mathScore}}')
         .join(', ');
-    debugPrint('OCR_LINE_CANDIDATES[$lineIndex]: [$joined]');
+    debugPrint('OCR_LINE_CANDIDATES[$lineIndex](usable=$usableCount): [$joined]');
   }
 }
 
 class _Bounds {
   const _Bounds({
+    required this.minX,
+    required this.minY,
+    required this.maxX,
+    required this.maxY,
     required this.width,
     required this.height,
   });
 
+  final double minX;
+  final double minY;
+  final double maxX;
+  final double maxY;
   final double width;
   final double height;
+}
+
+bool looksLikeMathText(String text) {
+  final String t = text.trim().toLowerCase();
+  if (t.isEmpty) {
+    return false;
+  }
+  final bool hasDigit = RegExp(r'\d').hasMatch(t);
+  final bool hasEquals = t.contains('=');
+  final bool hasOperator = RegExp(r'[\+\-\*/()]').hasMatch(t);
+  if (hasDigit || hasEquals || hasOperator) {
+    return true;
+  }
+  return false;
 }
 
 int scoreMathText(String text) {
@@ -151,11 +255,16 @@ int scoreMathText(String text) {
     return -100;
   }
   int score = 0;
-  if (t.contains('=')) score += 5;
-  if (RegExp(r'\d').hasMatch(t)) score += 4;
-  if (RegExp(r'[xy]').hasMatch(t)) score += 3;
-  if (RegExp(r'[\+\-\*/()]').hasMatch(t)) score += 3;
-  if (RegExp(r'^[a-z\s]+$').hasMatch(t)) score -= 8;
+  final bool hasDigit = RegExp(r'\d').hasMatch(t);
+  final bool hasEquals = t.contains('=');
+  final bool hasOperator = RegExp(r'[\+\-\*/()]').hasMatch(t);
+  final bool hasAnyMathSignal = hasDigit || hasEquals || hasOperator;
+
+  if (hasEquals) score += 5;
+  if (hasDigit) score += 4;
+  if (hasOperator) score += 3;
+  if (hasAnyMathSignal && RegExp(r'[xy]').hasMatch(t)) score += 3;
+  if (!hasAnyMathSignal && RegExp(r'^[a-z\s]+$').hasMatch(t)) score -= 12;
   return score;
 }
 

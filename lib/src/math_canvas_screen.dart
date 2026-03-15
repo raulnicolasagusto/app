@@ -326,52 +326,48 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
     final ThemeData theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Math Fight MVP'),
+        title: const Text('MathInk MVP'),
         centerTitle: true,
       ),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (BuildContext context, BoxConstraints constraints) {
-            final double headerHeight = constraints.maxHeight * 0.2;
             final double footerHeight = constraints.maxHeight * 0.15;
 
             return Column(
               children: <Widget>[
-                SizedBox(
-                  height: headerHeight,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: Card(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        child: Row(
-                          children: <Widget>[
-                            Expanded(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: <Widget>[
-                                  Text(
-                                    _currentEquation.prompt,
-                                    style: theme.textTheme.headlineSmall?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                    ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      child: Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Text(
+                                  _currentEquation.prompt,
+                                  style: theme.textTheme.headlineSmall?.copyWith(
+                                    fontWeight: FontWeight.bold,
                                   ),
-                                  if (_currentEquation.contextHint != null)
-                                    Text(
-                                      'Dato: ${_currentEquation.contextHint}',
-                                      style: theme.textTheme.bodyMedium,
-                                    ),
-                                ],
-                              ),
+                                ),
+                                if (_currentEquation.contextHint != null)
+                                  Text(
+                                    'Dato: ${_currentEquation.contextHint}',
+                                    style: theme.textTheme.bodyMedium,
+                                  ),
+                              ],
                             ),
-                            IconButton(
-                              onPressed: _isLoading ? null : _pickNewEquation,
-                              icon: const Icon(Icons.refresh),
-                              tooltip: 'Actualizar ecuación',
-                            ),
-                          ],
-                        ),
+                          ),
+                          IconButton(
+                            onPressed: _isLoading ? null : _pickNewEquation,
+                            icon: const Icon(Icons.refresh),
+                            tooltip: 'Actualizar ecuación',
+                          ),
+                        ],
                       ),
                     ),
                   ),

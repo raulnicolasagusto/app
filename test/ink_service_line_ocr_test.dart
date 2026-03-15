@@ -38,4 +38,17 @@ void main() {
     expect(best.text, 'x=15/3');
     expect(scoreMathText('x=15/3') > scoreMathText('blackberry'), isTrue);
   });
+
+  test('looksLikeMathText rejects words and accepts equations', () {
+    expect(looksLikeMathText('party hat'), isFalse);
+    expect(looksLikeMathText('safety cone'), isFalse);
+    expect(looksLikeMathText('x'), isFalse);
+    expect(looksLikeMathText('2x=6'), isTrue);
+    expect(looksLikeMathText('15/3'), isTrue);
+  });
+
+  test('scoreMathText favors expressions over plain words', () {
+    expect(scoreMathText('2x=6') > scoreMathText('campfire'), isTrue);
+    expect(scoreMathText('x=15/3') > scoreMathText('animal migration'), isTrue);
+  });
 }

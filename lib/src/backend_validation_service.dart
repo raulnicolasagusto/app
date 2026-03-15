@@ -1,19 +1,18 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
+import 'app_config.dart';
 import 'models.dart';
 
 class BackendValidationService {
   BackendValidationService({http.Client? client}) : _client = client ?? http.Client();
 
   final http.Client _client;
-  static const Duration _timeout = Duration(seconds: 12);
+  static const Duration _timeout = Duration(seconds: 10);
 
-  String get _baseUrl =>
-      (dotenv.env['BACKEND_BASE_URL'] ?? 'http://127.0.0.1:8000').trim();
+  String get _baseUrl => AppConfig.backendBaseUrl();
 
   Future<BackendValidationResult> validate({
     required EquationItem equation,

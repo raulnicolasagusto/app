@@ -1,9 +1,9 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
+import 'app_config.dart';
 import 'models.dart';
 
 class LlmService {
@@ -20,10 +20,10 @@ class LlmService {
     required String? contextHint,
     required OcrBundle ocrBundle,
   }) async {
-    final String apiKey = dotenv.env['GROQ_API_KEY'] ?? '';
+    final String apiKey = AppConfig.groqApiKey();
     if (apiKey.isEmpty) {
       throw const LlmException(
-        'Missing GROQ_API_KEY in .env',
+        'Missing GROQ_API_KEY (set via --dart-define or .env)',
       );
     }
 

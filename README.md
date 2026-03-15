@@ -1,4 +1,4 @@
-# Math Fight (Flutter MVP)
+# MathInk (Flutter MVP)
 
 Aplicación Flutter para practicar resolución de ecuaciones lineales escritas a mano.
 El usuario resuelve en un canvas, se reconoce el texto con OCR y luego se evalúa la resolución con un LLM para dar feedback visual inmediato.
@@ -17,9 +17,10 @@ Construir un MVP de corrección asistida para ejercicios de álgebra básica:
 2. El usuario escribe sus pasos en el canvas.
 3. Al presionar `Listo`, se ejecuta OCR con Google ML Kit Digital Ink.
 4. El OCR se organiza por líneas y se seleccionan candidatos más "matemáticos".
-5. Se envía al LLM (Groq) la ecuación, resultado esperado, OCR y candidatos alternativos.
-6. El LLM devuelve JSON estructurado con legibilidad, líneas incorrectas y corrección.
-7. La UI decide uno de tres estados:
+5. Se envía al backend (FastAPI + SymPy) la ecuación, resultado esperado, OCR y candidatos alternativos.
+6. El backend valida el proceso con SymPy y (opcional) consulta a Groq para feedback pedagógico.
+7. El backend devuelve JSON estructurado con legibilidad, líneas incorrectas y corrección.
+8. La UI decide uno de tres estados:
    - `correct`: check verde.
    - `incorrect`: tacha líneas erróneas + muestra corrección tipeada.
    - `unreadable`: mensaje de escritura ilegible.
@@ -56,17 +57,23 @@ Construir un MVP de corrección asistida para ejercicios de álgebra básica:
 
 ### 1) Requisitos
 - Flutter SDK compatible con `sdk: ^3.10.1`.
-- Dispositivo/emulador con servicios necesarios para ML Kit.
+- Recomendado: **Android físico** (ML Kit Digital Ink suele ser más confiable que emulador, y el backend corre en tu PC).
 
 ### 2) Variables de entorno
-Crear archivo `.env` en la raíz con:
+Tienes 2 opciones:
+
+**Opción A (dev local): `.env`**
+
+- Copia `./.env.example` a `./.env` (este archivo está en `.gitignore`).
+- Completa las variables:
 
 ```env
 GROQ_API_KEY=tu_api_key
 BACKEND_BASE_URL=http://192.168.100.5:8000
 ```
 
-> La app carga `.env` en `main.dart`. `BACKEND_BASE_URL` apunta al backend FastAPI.
+> La app intenta cargar `.env` en `main.dart` (si no existe, no falla).  
+> `BACKEND_BASE_URL` apunta al backend FastAPI.
 >
 > Flujo recomendado para este proyecto: pruebas en telefono fisico Android dentro de la misma red local que la PC.
 > En ese escenario, `127.0.0.1` no funciona porque apunta al telefono, no a tu computadora.
@@ -95,6 +102,12 @@ BACKEND_BASE_URL=http://192.168.100.5:8000
 > ```
 >
 > Finalmente, haz restart completo de Flutter app (no hot reload) para que tome el nuevo `.env`.
+
+**Opción B (recomendado para builds): `--dart-define`**
+
+```bash
+flutter run --dart-define=GROQ_API_KEY=tu_api_key --dart-define=BACKEND_BASE_URL=http://TU_IP:8000
+```
 
 ### 3) Instalar dependencias
 
