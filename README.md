@@ -3,6 +3,10 @@
 Aplicación Flutter para practicar resolución de ecuaciones lineales escritas a mano.
 El usuario resuelve en un canvas, se reconoce el texto con OCR y luego se evalúa la resolución con un LLM para dar feedback visual inmediato.
 
+## Instrucciones para implementaciones (agentes / IA)
+
+- Antes de implementar cualquier cambio, leer `AGENTS.md` y seguir sus reglas.
+
 ## Objetivo del proyecto
 
 Construir un MVP de corrección asistida para ejercicios de álgebra básica:

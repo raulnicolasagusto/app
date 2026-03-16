@@ -93,7 +93,58 @@ class ApiTest(unittest.TestCase):
         if data["decision"] == "correct_with_warnings":
             self.assertTrue(len(data["warning_lines"]) >= 1)
 
+    def test_expression_prompt_accepts_equation_line(self) -> None:
+        response = self.client.post(
+            "/v1/validate-solution",
+            json={
+                "equation_prompt": "4+3",
+                "expected_final": "7",
+                "context_hint": None,
+                "ocr_lines": ["4+3=7"],
+                "variable": "x",
+                "locale": "es",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["decision"], "correct")
+        self.assertTrue(data["final_result_correct"])
+        self.assertTrue(data["process_valid"])
+
+    def test_expression_prompt_rejects_unrelated_equation(self) -> None:
+        response = self.client.post(
+            "/v1/validate-solution",
+            json={
+                "equation_prompt": "4+3",
+                "expected_final": "7",
+                "context_hint": None,
+                "ocr_lines": ["1=1"],
+                "variable": "x",
+                "locale": "es",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["decision"], "incorrect")
+        self.assertFalse(data["final_result_correct"])
+
+    def test_expression_prompt_accepts_reversed_equation(self) -> None:
+        response = self.client.post(
+            "/v1/validate-solution",
+            json={
+                "equation_prompt": "36+25",
+                "expected_final": "61",
+                "context_hint": None,
+                "ocr_lines": ["61=36+25"],
+                "variable": "x",
+                "locale": "es",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["decision"], "correct")
+        self.assertTrue(data["final_result_correct"])
+
 
 if __name__ == "__main__":
     unittest.main()
-

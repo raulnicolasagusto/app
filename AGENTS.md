@@ -30,13 +30,18 @@ lib/src/
 - All network calls have 10s timeout
 - Si `correct` sin warnings: no tachar en rojo. Si `correct_with_warnings`: tachar solo líneas con warning.
 
+## UI & UX rules
+- Mantener consistencia visual con los estilos existentes (usar `AppTheme` y patrones ya usados en `HomeScreen`).
+- Soportar modo claro y oscuro (evitar colores hardcodeados cuando rompan contraste; preferir `Theme.of(context).colorScheme`/`AppTheme`).
+- Toda UI nueva debe contemplar traducciones (`en` default + `es` + `pt`) con fallback a `en` cuando falte una traducción.
+
 ## Do not
 - Do not use Provider, BLoC or Riverpod
 - Do not use emulator-dependent features
 - Do not hardcode API keys
 - Do not add packages without asking first
 
-## Helpful skills (optional)
-- [flutter-expert](.agents/skills/flutter-expert/SKILL.md)
+## Skills
+- Para nuevas implementaciones en Flutter, usar la skill [flutter-expert](.agents/skills/flutter-expert/SKILL.md).
 - [flutter-animations](.agents/skills/flutter-animations/SKILL.md)
 - [prompt-engineering-patterns](.agents/skills/prompt-engineering-patterns/SKILL.md)

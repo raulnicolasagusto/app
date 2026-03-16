@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'src/app_theme.dart';
 import 'src/home_screen.dart';
 import 'src/math_canvas_screen.dart';
+import 'src/screens/levels_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,6 +23,7 @@ class MathFightApp extends StatelessWidget {
 
   static const String homeRoute = '/home';
   static const String quickTestRoute = '/quick-test';
+  static const String curriculumRoute = '/curriculum';
 
   @override
   Widget build(BuildContext context) {
@@ -34,6 +36,7 @@ class MathFightApp extends StatelessWidget {
       routes: <String, WidgetBuilder>{
         homeRoute: (BuildContext context) => const HomeScreen(),
         quickTestRoute: (BuildContext context) => const MathCanvasScreen(),
+        curriculumRoute: (BuildContext context) => const LevelsScreen(),
       },
     );
   }

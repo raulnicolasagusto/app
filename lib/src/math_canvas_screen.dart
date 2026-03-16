@@ -5,14 +5,28 @@ import 'package:flutter/material.dart';
 
 import 'backend_validation_service.dart';
 import 'canvas_painter.dart';
+import 'curriculum/prompt_display.dart';
 import 'equation_bank.dart';
+import 'exercises/exercise_item.dart';
+import 'exercises/exercise_repository.dart';
 import 'feedback_mapper.dart';
 import 'ink_service.dart';
 import 'line_mapper.dart';
 import 'models.dart';
 
 class MathCanvasScreen extends StatefulWidget {
-  const MathCanvasScreen({super.key});
+  const MathCanvasScreen({
+    super.key,
+    this.levelId,
+    this.topicId,
+    this.topicDisplayName,
+    this.seedAssetPath,
+  });
+
+  final String? levelId;
+  final String? topicId;
+  final String? topicDisplayName;
+  final String? seedAssetPath;
 
   @override
   State<MathCanvasScreen> createState() => _MathCanvasScreenState();
@@ -23,12 +37,14 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
   final EquationBank _equationBank = EquationBank();
   final InkService _inkService = InkService();
   final BackendValidationService _validationService = BackendValidationService();
+  final ExerciseRepository _exerciseRepository = ExerciseRepository();
 
   late EquationItem _currentEquation;
   final List<StrokePath> _userStrokes = <StrokePath>[];
   StrokePath? _activeStroke;
 
   bool _isLoading = false;
+  bool _isLoadingExercise = false;
   bool _showCheck = false;
   bool _showFinalX = false;
   List<int> _wrongLineNumbers = <int>[];
@@ -38,6 +54,14 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
   Timer? _typeTimer;
 
   late final AnimationController _checkController;
+
+  bool get _busy => _isLoading || _isLoadingExercise;
+
+  bool get _usesCurriculum =>
+      widget.levelId != null &&
+      widget.levelId!.trim().isNotEmpty &&
+      widget.topicId != null &&
+      widget.topicId!.trim().isNotEmpty;
 
   @override
   void initState() {
@@ -51,6 +75,10 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
           setState(() {});
         }
       });
+
+    if (_usesCurriculum) {
+      Future<void>.microtask(() => _loadNextExercise(resetCanvas: true));
+    }
   }
 
   @override
@@ -62,7 +90,7 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
   }
 
   void _onPanStart(DragStartDetails details) {
-    if (_isLoading) return;
+    if (_busy) return;
     final int timestamp = DateTime.now().millisecondsSinceEpoch;
     _activeStroke = StrokePath(
       points: <Offset>[details.localPosition],
@@ -72,14 +100,14 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
   }
 
   void _onPanUpdate(DragUpdateDetails details) {
-    if (_activeStroke == null || _isLoading) return;
+    if (_activeStroke == null || _busy) return;
     _activeStroke!.points.add(details.localPosition);
     _activeStroke!.timestamps.add(DateTime.now().millisecondsSinceEpoch);
     setState(() {});
   }
 
   void _onPanEnd(DragEndDetails details) {
-    if (_activeStroke == null || _isLoading) return;
+    if (_activeStroke == null || _busy) return;
     _userStrokes.add(_activeStroke!);
     _activeStroke = null;
     setState(() {});
@@ -98,7 +126,12 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
     _userStrokes.clear();
   }
 
-  void _pickNewEquation() {
+  Future<void> _pickNewEquation() async {
+    if (_busy) return;
+    if (_usesCurriculum) {
+      await _loadNextExercise(resetCanvas: true);
+      return;
+    }
     setState(() {
       final String oldId = _currentEquation.id;
       _resetCanvasForNextEquation();
@@ -107,14 +140,63 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
   }
 
   void _clearCanvasOnly() {
-    if (_isLoading) return;
+    if (_busy) return;
     setState(() {
       _resetCanvasForNextEquation();
     });
   }
 
+  EquationItem _equationFromExercise(ExerciseItem item) {
+    return EquationItem(
+      id: item.id,
+      prompt: item.prompt,
+      expectedFinal: item.expectedFinal,
+      contextHint: item.contextHint,
+    );
+  }
+
+  Future<void> _loadNextExercise({required bool resetCanvas}) async {
+    if (!_usesCurriculum) return;
+    setState(() {
+      _isLoadingExercise = true;
+      if (resetCanvas) {
+        _resetCanvasForNextEquation();
+      }
+    });
+    try {
+      final String? assetPath = widget.seedAssetPath;
+      if (assetPath != null && assetPath.trim().isNotEmpty) {
+        await _exerciseRepository.importTopicFromAsset(
+          assetPath: assetPath,
+          topicId: widget.topicId!.trim(),
+          levelId: widget.levelId!.trim(),
+        );
+      }
+      final ExerciseItem next = await _exerciseRepository.getNextByTopic(
+        topicId: widget.topicId!.trim(),
+        levelId: widget.levelId!.trim(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _currentEquation = _equationFromExercise(next);
+      });
+    } on NoExercisesForTopicException catch (_) {
+      if (!mounted) return;
+      _showMessage('Todavía no hay ejercicios disponibles para este tema.');
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('Error cargando ejercicio: $error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingExercise = false;
+        });
+      }
+    }
+  }
+
   Future<void> _analyze() async {
-    if (_isLoading) return;
+    if (_busy) return;
     if (_userStrokes.isEmpty) {
       _showMessage('Escribí tu resolución antes de presionar Listo.');
       return;
@@ -326,7 +408,7 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
     final ThemeData theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('MathInk MVP'),
+        title: Text(widget.topicDisplayName ?? 'MathInk MVP'),
         centerTitle: true,
       ),
       body: SafeArea(
@@ -349,7 +431,10 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: <Widget>[
                                 Text(
-                                  _currentEquation.prompt,
+                                  displayPromptForUi(
+                                    prompt: _currentEquation.prompt,
+                                    levelId: widget.levelId,
+                                  ),
                                   style: theme.textTheme.headlineSmall?.copyWith(
                                     fontWeight: FontWeight.bold,
                                   ),
@@ -363,7 +448,7 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
                             ),
                           ),
                           IconButton(
-                            onPressed: _isLoading ? null : _pickNewEquation,
+                            onPressed: _busy ? null : () => _pickNewEquation(),
                             icon: const Icon(Icons.refresh),
                             tooltip: 'Actualizar ecuación',
                           ),
@@ -404,13 +489,13 @@ class _MathCanvasScreenState extends State<MathCanvasScreen>
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: <Widget>[
                       IconButton(
-                        onPressed: _isLoading ? null : _clearCanvasOnly,
+                        onPressed: _busy ? null : _clearCanvasOnly,
                         tooltip: 'Borrar canvas',
                         icon: const Icon(Icons.auto_fix_normal),
                       ),
                       const SizedBox(width: 8),
                       FilledButton.icon(
-                        onPressed: _isLoading ? null : _analyze,
+                        onPressed: _busy ? null : _analyze,
                         icon: _isLoading
                             ? const SizedBox(
                                 width: 16,

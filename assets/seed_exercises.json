@@ -1,0 +1,68 @@
+{
+  "exercises": [
+    {
+      "id": "seed_primary_add_sub_001",
+      "level_id": "primary",
+      "topic_id": "primary_add_sub",
+      "prompt": "2x + 5 = 17",
+      "expected_final": "x=6",
+      "context_hint": null,
+      "difficulty": 1
+    },
+    {
+      "id": "seed_primary_add_sub_002",
+      "level_id": "primary",
+      "topic_id": "primary_add_sub",
+      "prompt": "5x + 3 = 28",
+      "expected_final": "x=5",
+      "context_hint": null,
+      "difficulty": 1
+    },
+    {
+      "id": "seed_primary_fractions_001",
+      "level_id": "primary",
+      "topic_id": "primary_fractions",
+      "prompt": "x/2 + 3 = 7",
+      "expected_final": "x=8",
+      "context_hint": null,
+      "difficulty": 2
+    },
+    {
+      "id": "seed_primary_fractions_002",
+      "level_id": "primary",
+      "topic_id": "primary_fractions",
+      "prompt": "x/3 + 4 = 10",
+      "expected_final": "x=18",
+      "context_hint": null,
+      "difficulty": 2
+    },
+    {
+      "id": "seed_secondary_linear_eq_001",
+      "level_id": "secondary",
+      "topic_id": "secondary_linear_equations",
+      "prompt": "3x - 4 = 11",
+      "expected_final": "x=5",
+      "context_hint": null,
+      "difficulty": 2
+    },
+    {
+      "id": "seed_secondary_linear_eq_002",
+      "level_id": "secondary",
+      "topic_id": "secondary_linear_equations",
+      "prompt": "7x - 1 = 34",
+      "expected_final": "x=5",
+      "context_hint": null,
+      "difficulty": 2
+    },
+    {
+      "id": "seed_secondary_systems_001",
+      "level_id": "secondary",
+      "topic_id": "secondary_systems_intro",
+      "prompt": "2x + 2y = 20",
+      "expected_final": "x=6",
+      "context_hint": "y=4",
+      "difficulty": 3
+    }
+  ]
+}
+

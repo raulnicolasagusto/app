@@ -427,6 +427,71 @@ class HomeScreen extends StatelessWidget {
             ),
           ),
         ),
+        const SizedBox(height: 12),
+        InkWell(
+          onTap: () {
+            Navigator.of(context).pushNamed('/curriculum');
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(color: const Color(0xFFE5E7EB)),
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: const <BoxShadow>[
+                BoxShadow(color: Color(0x22000000), blurRadius: 10, offset: Offset(0, 5)),
+              ],
+            ),
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: <Widget>[
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: <Color>[Color(0xFF8B5CF6), Color(0xFF22D3EE)],
+                    ),
+                    borderRadius: BorderRadius.all(Radius.circular(12)),
+                  ),
+                  child: const Icon(Icons.menu_book, color: Colors.white, size: 30),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        'Curriculum',
+                        style: GoogleFonts.blackOpsOne(
+                          fontSize: 24,
+                          color: AppTheme.textMain,
+                        ),
+                      ),
+                      Text(
+                        'LEVELS • TOPICS • EXERCISES',
+                        style: GoogleFonts.chakraPetch(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFF8B5CF6),
+                          letterSpacing: 1.1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  'NEW',
+                  style: GoogleFonts.blackOpsOne(
+                    fontSize: 16,
+                    color: const Color(0xFF8B5CF6),
+                    letterSpacing: 1.1,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ],
     );
   }

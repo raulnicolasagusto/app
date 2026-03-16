@@ -5,12 +5,15 @@ from dataclasses import dataclass
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sympy import simplify
 
 from .math_engine import (
+    ParsedStep,
     SequenceCandidate,
     choose_candidate_sequences,
     classify_error,
     compare_steps,
+    normalize_text,
     parse_context_substitutions,
     parse_step,
 )
@@ -84,7 +87,47 @@ def _evaluate_sequence(payload: ValidateSolutionRequest, sequence: SequenceCandi
     full_steps = [payload.equation_prompt, *sequence.lines]
     substitutions = parse_context_substitutions(payload.context_hint)
     parsed = [parse_step(step) for step in full_steps]
-    normalized_steps = [step.normalized for step in parsed]
+
+    expression_prompt_mode = "=" not in payload.equation_prompt
+    effective_steps: list[ParsedStep] = []
+    for idx, step in enumerate(parsed):
+        if not expression_prompt_mode or idx == 0:
+            effective_steps.append(step)
+            continue
+
+        previous = effective_steps[idx - 1]
+        current = step
+        coerced = current
+        if (
+            previous.expr is not None
+            and current.eq is not None
+            and current.parse_error is None
+            and len(current.eq.lhs.free_symbols) == 0
+            and len(current.eq.rhs.free_symbols) == 0
+        ):
+            try:
+                if bool(simplify(previous.expr - current.eq.lhs) == 0):
+                    chosen = current.eq.rhs
+                elif bool(simplify(previous.expr - current.eq.rhs) == 0):
+                    chosen = current.eq.lhs
+                else:
+                    chosen = None
+            except Exception:
+                chosen = None
+
+            if chosen is not None:
+                chosen_str = str(chosen)
+                coerced = ParsedStep(
+                    raw=current.raw,
+                    normalized=normalize_text(chosen_str),
+                    is_equation=False,
+                    expr=chosen,
+                    eq=None,
+                    parse_error=None,
+                )
+        effective_steps.append(coerced)
+
+    normalized_steps = [step.normalized for step in effective_steps]
 
     step_validations: list[StepValidationPayload] = []
     process_valid = True
@@ -95,9 +138,9 @@ def _evaluate_sequence(payload: ValidateSolutionRequest, sequence: SequenceCandi
     prev_set: str | None = None
     curr_set: str | None = None
 
-    for idx in range(len(parsed) - 1):
-        previous = parsed[idx]
-        current = parsed[idx + 1]
+    for idx in range(len(effective_steps) - 1):
+        previous = effective_steps[idx]
+        current = effective_steps[idx + 1]
         result = compare_steps(previous, current, payload.variable, substitutions=substitutions)
         step_validations.append(result)
         equivalence_mode = result.equivalence_mode
@@ -117,7 +160,7 @@ def _evaluate_sequence(payload: ValidateSolutionRequest, sequence: SequenceCandi
             break
 
     expected_step = parse_step(payload.expected_final)
-    final_step = parsed[-1]
+    final_step = effective_steps[-1]
     expected_check = compare_steps(
         final_step,
         expected_step,
